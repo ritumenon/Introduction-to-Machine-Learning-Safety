@@ -63,7 +63,7 @@ class CarlaDataset(Dataset):
 # CONFIGURATION & DATASETS
 DATA_DIR_TRAIN = './train/train'
 DATA_DIR_VAL = './validation/validation'
-NUM_EPOCHS = 5 
+NUM_EPOCHS = 7
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
 
@@ -99,9 +99,14 @@ model.fc = nn.Linear(model.fc.in_features, 2)
 model = model.to(device)
 
 # CLASS WEIGHTING 
-weights = torch.tensor([0.2, 0.8]).to(device)
+total_samples = len(train_ds)
+ped_counts = train_ds.labels_df['has_pedestrian'].sum() 
+absent_counts = total_samples - ped_counts
+weight_absent = total_samples / (2.0 * absent_counts)
+weight_present = total_samples / (2.0 * ped_counts)
+weights = torch.tensor([weight_absent, weight_present], dtype=torch.float).to(device)
 criterion = nn.CrossEntropyLoss(weight=weights)
-
+print(f"Weights applied: Absent={weight_absent:.2f}, Present={weight_present:.2f}")
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1)
 

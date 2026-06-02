@@ -7,7 +7,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
+import numpy as np
 from plotting import plot_confusion_matrix
 
 class CarlaDataset(Dataset):
@@ -72,19 +73,42 @@ def evaluate_model(model, dataloader, target_label, device):
     model.eval()
     all_preds = []
     all_labels = []
+    all_raw_logits = [] 
 
     with torch.no_grad():
         for inputs, labels_dict in dataloader:
             inputs = inputs.to(device)
             labels = labels_dict[target_label].to(device)
             outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
+            all_raw_logits.append(outputs.cpu())
             
+            _, preds = torch.max(outputs, 1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    plot_confusion_matrix(all_labels, all_preds, target_label)
+    # Temperature Scaling Analysis 
+    all_raw_logits = torch.cat(all_raw_logits)
+    all_labels_np = np.array(all_labels)
+    
+    print(f"\n--- Temperature Analysis for {target_label} ---")
+    T_values = [0.5, 1.0, 2.0]
+    
+    # Plotting probabilities 
+    plt.figure(figsize=(15, 4))
+    for i, T in enumerate(T_values):
+        probs_T = torch.sigmoid(all_raw_logits[:, 1] / T)
+        preds_T = (probs_T >= 0.5).int().numpy()
+        acc_T = accuracy_score(all_labels_np, preds_T)
+        print(f"  T={T} Accuracy: {acc_T:.4f}")
+        
+        plt.subplot(1, 3, i + 1)
+        plt.hist(probs_T.numpy(), bins=20, range=(0, 1), alpha=0.7)
+        plt.title(f'T = {T}')
+    plt.savefig(f'temp_analysis_{target_label}.png')
+    plt.close()
 
+    # Metrics & Confusion Matrix
+    plot_confusion_matrix(all_labels, all_preds, target_label)
     acc = accuracy_score(all_labels, all_preds)
     prec = precision_score(all_labels, all_preds, zero_division=0)
     rec = recall_score(all_labels, all_preds, zero_division=0)
@@ -108,7 +132,7 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
 
     models_to_test = {
-        'pedestrian': 'model_pedestrian.pth',
+        'pedestrian': 'model_pedestrian_detector.pth',
         'traffic_light': 'model_traffic_light.pth',
         'vehicle': 'model_vehicle.pth'
     }
@@ -125,7 +149,7 @@ if __name__ == '__main__':
         results[target] = {'Accuracy': acc, 'Precision': prec, 'Recall': rec, 'F1': f1}
 
     print("\n" + "="*50)
-    print("FINAL EVALUATION REPORT (EXERCISE 3.6)")
+    print("FINAL EVALUATION REPORT")
     print("="*50)
     for target, metrics in results.items():
         print(f"[{target.upper()}]")
